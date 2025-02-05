@@ -1,0 +1,7 @@
+{
+  "name": "SmartVan.io Resistive Sensor card",
+  "filename": "index.js",
+  "render_readme": true,
+  "content_in_root": true,
+  "image": "logo.png"
+}
