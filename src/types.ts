@@ -13,6 +13,8 @@ export interface ExtendedHomeAssistant extends HomeAssistant {
 
 export interface Config extends LovelaceCardConfig {
   device: string;
+  minResistance?: number;
+  maxResistance?: number;
 }
 
 export interface Device {
@@ -20,4 +22,8 @@ export interface Device {
   id: string;
   model?: string;
   manufacturer?: string;
+}
+
+export interface Attributes {
+  interpolation_points: string;
 }

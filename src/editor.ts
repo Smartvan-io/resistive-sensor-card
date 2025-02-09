@@ -14,6 +14,19 @@ const options = [
   },
 ];
 
+const computeR1 = (R2_min: number = 0, R2_max: number = 0) => {
+  const Vin = 5;
+  const Vout_max = 2.9;
+
+  // R1 = (Vin * R2_max / Vout_max) - R2_max
+  const R2 = Math.max(R2_min, R2_max);
+  const numerator = Vin * R2;
+  const denominator = Vout_max;
+  const R1 = numerator / denominator - R2;
+
+  return R1;
+};
+
 @customElement("smartvan-io-resistive-sensor-editor")
 class SmartVanIOResistiveSensorCardEditor
   extends LitElement
@@ -25,7 +38,7 @@ class SmartVanIOResistiveSensorCardEditor
     sensor_1_input_open: Entity;
     sensor_1_open_circuit_voltage_theshold: Entity;
     sensor_1_reference_value: Entity;
-    sensor_1_set_resistance: Entity;
+    sensor_1_wiper_value: Entity;
     sensor_1_interpolated_value: Entity;
     sensor_1_interpolation_points: Entity;
   };
@@ -33,8 +46,11 @@ class SmartVanIOResistiveSensorCardEditor
   @state() private _config: Config = {
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
+    minResistance: 0,
+    maxResistance: 190,
   };
   @state() private _interpolationPoints = "";
+  @state() private _wiperValue = 0;
 
   static styles = css`
     .card-config {
@@ -83,12 +99,9 @@ class SmartVanIOResistiveSensorCardEditor
       this._entities = this._getEntitiesForDevice(config.device);
     }
 
-    this._config = config;
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    // Function to call when the editor closes
+    this._config = {
+      ...config,
+    };
   }
 
   protected updated(
@@ -96,6 +109,13 @@ class SmartVanIOResistiveSensorCardEditor
   ): void {
     this._interpolationPoints =
       this._getState(this._entities.sensor_1_interpolation_points) || "[]";
+
+    const computedR1 = computeR1(
+      this._config.minResistance,
+      this._config.maxResistance
+    );
+
+    // this._setValue(this._entities.sensor_1_wiper_value.entity_id, computedR1);
   }
 
   // Render your editor form
@@ -110,6 +130,43 @@ class SmartVanIOResistiveSensorCardEditor
 
     return html`
       <div class="card-config">
+        <div>
+          <div>
+            Interpolated value:
+            ${this._getState(this._entities.sensor_1_interpolated_value)}
+          </div>
+          <div>Actual value: ${this._getState(this._entities.sensor_1)}</div>
+        </div>
+        <div>
+          <ha-textfield
+            class="field"
+            label="Min Resistance"
+            .value=${this._config.minResistance}
+            type="number"
+            @change=${(e: any) => {
+              fireEvent(this, "config-changed", {
+                config: {
+                  ...this._config,
+                  minResistance: Number(e.target.value || 0),
+                },
+              });
+            }}
+          ></ha-textfield>
+          <ha-textfield
+            class="field"
+            label="Max Resistance"
+            .value=${this._config.maxResistance}
+            type="number"
+            @change=${(e: any) => {
+              fireEvent(this, "config-changed", {
+                config: {
+                  ...this._config,
+                  maxResistance: Number(e.target.value || 0),
+                },
+              });
+            }}
+          ></ha-textfield>
+        </div>
         ${interpolationPoints.map(
           (point, index) => html`
             <div>
@@ -121,14 +178,13 @@ class SmartVanIOResistiveSensorCardEditor
               ></ha-textfield>
               <ha-textfield
                 class="field"
-                label="Voltage"
+                label="Output"
                 .value=${point[1]}
                 @change=${(e: any) => this._setPoint(e.target.value, index, 1)}
               ></ha-textfield>
             </div>
           `
         )}
-        <div>${this._getState(this._entities.sensor_1_interpolated_value)}</div>
       </div>
     `;
   }
@@ -197,6 +253,8 @@ class SmartVanIOResistiveSensorCardEditor
     });
   }
 
+  private _setWiper(value) {}
+
   private _setDevice(device: string) {
     this._entities = this._getEntitiesForDevice(device);
 
@@ -205,19 +263,6 @@ class SmartVanIOResistiveSensorCardEditor
         ...this._config,
         device: this._possibleDevices.find((item) => item.id === device)!.id,
       },
-    });
-  }
-
-  private _setOrientation(value: string) {
-    this.hass.callService("select", "select_option", {
-      entity_id: this._entities?.orientation?.entity_id,
-      option: value,
-    });
-  }
-
-  private _setButton(entity_id: string) {
-    this.hass.callService("button", "press", {
-      entity_id,
     });
   }
 
