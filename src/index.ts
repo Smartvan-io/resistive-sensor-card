@@ -47,42 +47,26 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     sensor_1_interpolated_value: Entity;
   };
   @property({ attribute: false }) private interpolationPoints = [];
-  @state() private activeTab = 0;
+  @state() private activeSensor = 1;
 
   static getConfigElement() {
     return document.createElement("smartvan-io-resistive-sensor-editor");
   }
 
   static styles = css`
-    .wrapper {
-      opacity: 0.5;
+    .row {
       display: flex;
+      margin-bottom: 8px;
+      gap: 8px;
     }
-    .enabled {
-      opacity: 1;
-    }
-    .parent {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 96px;
-      position: relative;
-      opacity: 0.8;
-    }
-    .floor {
-      width: 100%;
-      display: flex;
-      border-bottom: 1px solid white;
-      margin-bottom: 24px;
-    }
+
     .button {
-      width: 100%;
-    }
-    ha-control-button.active {
-      --control-button-icon-color: white;
-      --control-button-background-color: var(--success-color);
-      --control-button-background-opacity: 0.5;
-      --control-button-text-color: white;
+      background: none;
+      border: none;
+
+      &:hover {
+        cursor: pointer;
+      }
     }
 
     ha-icon.icon {
@@ -126,10 +110,7 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     if (!this.config || !this._entities)
       return html`<ha-card>Loading...</ha-card>`;
 
-    const interpolationPoints = JSON.parse(
-      this._getAttributes(`sensor_${this.activeTab + 1}_interpolated_value`)
-        .interpolation_points
-    );
+    const interpolationPoints = this._getPoints(this.activeSensor);
 
     return html`
       <ha-card>
@@ -139,45 +120,69 @@ class SmartVanIOResistiveSensorCard extends LitElement {
 
         <div class="card-content">
           <mwc-tab-bar
-            activeIndex=${this.activeTab}
-            @MDCTabBar:activated=${(e) => (this.activeTab = e.detail.index)}
+            activeIndex=${this.activeSensor - 1}
+            @MDCTabBar:activated=${(e) =>
+              (this.activeSensor = e.detail.index + 1)}
           >
             <mwc-tab label="Sensor 1"></mwc-tab>
             <mwc-tab label="Sensor 2"></mwc-tab>
           </mwc-tab-bar>
           <div>
-            Interpolated value:
-            ${this._getState(`sensor_${this.activeTab + 1}_interpolated_value`)}
-          </div>
-          <div>
-            Actual value: ${this._getState(`sensor_${this.activeTab + 1}`)}
+            <h3>Sensor Data</h3>
+            <div>
+              Interpolated value:
+              ${this._getState(
+                `sensor_${this.activeSensor}_interpolated_value`
+              )}
+            </div>
+            <div>
+              Actual value: ${this._getState(`sensor_${this.activeSensor}`)}
+            </div>
           </div>
 
-          ${interpolationPoints.map(
-            (point, index) => html`
-              <div>
-                <ha-textfield
-                  class="field"
-                  label="Voltage"
-                  .value=${point[0] || 0}
-                  @change=${(e: any) =>
-                    this._setPoint(e.target.value, index, 0)}
-                ></ha-textfield>
-                <ha-textfield
-                  class="field"
-                  label="Output"
-                  .value=${point[1] || 0}
-                  @change=${(e: any) =>
-                    this._setPoint(e.target.value, index, 1)}
-                ></ha-textfield>
-              </div>
-            `
-          )}
-          <button
-            @click=${() => this._addPoint(`sensor_${this.activeTab + 1}`)}
-          >
-            Add
-          </button>
+          <div>
+            <h3>Interpolation points (${interpolationPoints.length})</h3>
+
+            ${[
+              ...interpolationPoints,
+              ...(interpolationPoints.length < 8 ? [[0, 0]] : []),
+            ].map(
+              (point, index) => html`
+                <div class="row">
+                  <ha-textfield
+                    class="field"
+                    label="Voltage"
+                    .value=${point[0] || 0}
+                    @change=${(e: any) =>
+                      this._setPoint(
+                        e.target.value,
+                        index,
+                        0,
+                        this.activeSensor
+                      )}
+                  ></ha-textfield>
+                  <ha-textfield
+                    class="field"
+                    label="Output"
+                    .value=${point[1] || 0}
+                    @change=${(e: any) =>
+                      this._setPoint(
+                        e.target.value,
+                        index,
+                        1,
+                        this.activeSensor
+                      )}
+                  ></ha-textfield>
+                  <button
+                    class="button"
+                    @click=${() => this._removePoint(this.activeSensor, index)}
+                  >
+                    <ha-icon icon="mdi:close"></ha-icon>
+                  </button>
+                </div>
+              `
+            )}
+          </div>
         </div>
       </ha-card>
     `;
@@ -198,44 +203,59 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     });
   }
 
+  _getPoints(sensor: number = 0) {
+    return JSON.parse(
+      this._getAttributes(`sensor_${sensor}_interpolated_value`)
+        .interpolation_points
+    );
+  }
+
   _getState(key: string) {
     const entity = this._entities[key];
     return this.hass.states[entity.entity_id!].state;
   }
 
-  _setPoint(value, index, point) {
+  _setPoint(value, index, point, sensor) {
     const device = this.hass.devices[this.config.device].name.replace(" ", "-");
-    const interpolationPoints = JSON.parse(
-      this._getAttributes(this._entities.sensor_1_interpolated_value)
-        .interpolation_points
-    );
-
-    // console.log(interpolationPoints[index], index);
+    const interpolationPoints = this._getPoints(sensor);
 
     this.hass.callService("smartvanio", "update_config_entry", {
       device_id: device,
-      sensor_id: "sensor_1",
+      sensor_id: `sensor_${sensor}`,
       interpolation_points: JSON.stringify(
         set([...interpolationPoints], [index, point], Number(value))
       ),
     });
   }
 
-  _addPoint(sensor_id: string) {
+  _addPoint(sensor: number) {
     const device = this.hass.devices[this.config.device].name.replace(" ", "-");
     const interpolationPoints = JSON.parse(
-      this._getAttributes(`${sensor_id}_interpolated_value`)
+      this._getAttributes(`sensor_${sensor}_interpolated_value`)
         .interpolation_points
     );
 
     this.hass.callService("smartvanio", "update_config_entry", {
       device_id: device,
-      sensor_id,
+      sensor_id: `sensor_${sensor}`,
       interpolation_points: JSON.stringify([...interpolationPoints, [0, 0]]),
     });
   }
 
-  private _getAttributes(key: string): Attributes {
+  _removePoint(sensor: number, point: number) {
+    const device = this.hass.devices[this.config.device].name.replace(" ", "-");
+    const interpolationPoints = this._getPoints(sensor).filter(
+      (p, index: number) => index !== point
+    );
+
+    this.hass.callService("smartvanio", "update_config_entry", {
+      device_id: device,
+      sensor_id: `sensor_${sensor}`,
+      interpolation_points: JSON.stringify([...interpolationPoints]),
+    });
+  }
+
+  private _getAttributes(key: string) {
     if (!key) {
       return "";
     }
