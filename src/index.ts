@@ -10,6 +10,7 @@ import {
   Entity,
   ExtendedHomeAssistant,
   Attributes,
+  Entities,
 } from "src/types";
 import { fireEvent, LovelaceCardEditor } from "custom-card-helpers";
 
@@ -33,20 +34,12 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   @property({ attribute: false }) public config: Config = {
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
-    minResistance: 0,
-    maxResistance: 190,
   };
 
   @property({ attribute: false }) public entities!: {};
   @property({ attribute: false }) private _possibleDevices: Device[] = [];
-  @property({ attribute: false }) public _entities!: {
-    sensor_1: Entity;
-    sensor_1_input_open: Entity;
-    sensor_1_open_circuit_voltage_theshold: Entity;
-    sensor_1_wiper_value: Entity;
-    sensor_1_interpolated_value: Entity;
-  };
-  @property({ attribute: false }) private interpolationPoints = [];
+  @property({ attribute: false }) public _entities!: Entities;
+  @property() private interpolationPoints = [];
   @state() private activeSensor = 1;
 
   static getConfigElement() {
@@ -107,8 +100,9 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   }
 
   render() {
-    if (!this.config || !this._entities)
+    if (!this.config || !this._entities) {
       return html`<ha-card>Loading...</ha-card>`;
+    }
 
     const interpolationPoints = this._getPoints(this.activeSensor);
 
@@ -129,59 +123,44 @@ class SmartVanIOResistiveSensorCard extends LitElement {
           </mwc-tab-bar>
           <div>
             <h3>Sensor Data</h3>
-            <div>
-              Interpolated value:
-              ${this._getState(
-                `sensor_${this.activeSensor}_interpolated_value`
+            <hui-generic-entity-row
+              .hass=${this.hass}
+              .config=${{
+                type: "sensor",
+                title: "test",
+                entity: this._getEntity(
+                  this._getEntityKey(`sensor_${this.activeSensor}_raw`)
+                ).entity_id,
+              }}
+            >
+              ${this.hass.formatEntityState(
+                this._getStateObj(
+                  this._getEntityKey(`sensor_${this.activeSensor}_raw`)
+                )
               )}
-            </div>
-            <div>
-              Actual value: ${this._getState(`sensor_${this.activeSensor}`)}
-            </div>
-          </div>
+            </hui-generic-entity-row>
 
-          <div>
-            <h3>Interpolation points (${interpolationPoints.length})</h3>
-
-            ${[
-              ...interpolationPoints,
-              ...(interpolationPoints.length < 8 ? [[0, 0]] : []),
-            ].map(
-              (point, index) => html`
-                <div class="row">
-                  <ha-textfield
-                    class="field"
-                    label="Voltage"
-                    .value=${point[0] || 0}
-                    @change=${(e: any) =>
-                      this._setPoint(
-                        e.target.value,
-                        index,
-                        0,
-                        this.activeSensor
-                      )}
-                  ></ha-textfield>
-                  <ha-textfield
-                    class="field"
-                    label="Output"
-                    .value=${point[1] || 0}
-                    @change=${(e: any) =>
-                      this._setPoint(
-                        e.target.value,
-                        index,
-                        1,
-                        this.activeSensor
-                      )}
-                  ></ha-textfield>
-                  <button
-                    class="button"
-                    @click=${() => this._removePoint(this.activeSensor, index)}
-                  >
-                    <ha-icon icon="mdi:close"></ha-icon>
-                  </button>
-                </div>
-              `
-            )}
+            <hui-generic-entity-row
+              .hass=${this.hass}
+              .config=${{
+                type: "sensor",
+                domain: "sensor",
+                title: "test",
+                entity: this._getEntity(
+                  this._getEntityKey(
+                    `sensor_${this.activeSensor}_interpolated_value`
+                  )
+                ).entity_id,
+              }}
+            >
+              ${this.hass.formatEntityState(
+                this._getStateObj(
+                  this._getEntityKey(
+                    `sensor_${this.activeSensor}_interpolated_value`
+                  )
+                )
+              )}
+            </hui-generic-entity-row>
           </div>
         </div>
       </ha-card>
@@ -198,42 +177,62 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     window.loadCardHelpers().then((helpers) => {
       helpers.importMoreInfoControl("weather");
 
-      console.log(customElements.get("mwc-tab-bar"));
-      console.log(customElements.get("mwc-tab"));
+      customElements.get("mwc-tab-bar");
+      customElements.get("mwc-tab");
     });
+  }
+
+  _getEntityKey(key: string) {
+    return key as keyof Entities;
+  }
+
+  _getState(key: keyof Entities) {
+    return this._getStateObj(key).state;
+  }
+
+  _getEntity(key: keyof Entities) {
+    return this._entities[key] || {};
   }
 
   _getPoints(sensor: number = 0) {
     return JSON.parse(
-      this._getAttributes(`sensor_${sensor}_interpolated_value`)
-        .interpolation_points
+      this._getState(
+        this._getEntityKey(`sensor_${sensor}_interpolation_points`)
+      )
     );
   }
 
-  _getState(key: string) {
-    const entity = this._entities[key];
-    return this.hass.states[entity.entity_id!].state;
+  _getStateObj(key: keyof Entities) {
+    const entity = this._getEntity(key);
+    return this.hass.states[entity.entity_id];
   }
 
-  _setPoint(value, index, point, sensor) {
+  _setPoint(value: string, index: number, point: number, sensor: number) {
     const device = this.hass.devices[this.config.device].name.replace(" ", "-");
     const interpolationPoints = this._getPoints(sensor);
 
-    this.hass.callService("smartvanio", "update_config_entry", {
-      device_id: device,
-      sensor_id: `sensor_${sensor}`,
-      interpolation_points: JSON.stringify(
-        set([...interpolationPoints], [index, point], Number(value))
-      ),
-    });
+    this.hass
+      .callService("text", "set_value", {
+        entity_id: this._getEntity(
+          this._getEntityKey(`sensor_${sensor}_interpolation_points`)
+        ).entity_id,
+        value: JSON.stringify(
+          set([...interpolationPoints], [index, point], Number(value))
+        ),
+      })
+      .then(console.log)
+      .catch(console.log);
   }
 
   _addPoint(sensor: number) {
     const device = this.hass.devices[this.config.device].name.replace(" ", "-");
     const interpolationPoints = JSON.parse(
-      this._getAttributes(`sensor_${sensor}_interpolated_value`)
-        .interpolation_points
+      this._getAttributes(
+        this._getEntityKey(`sensor_${sensor}_interpolated_value`)
+      ).interpolation_points
     );
+
+    // this.interpolationPoints = [...interpolationPoints, [0, 0]];
 
     this.hass.callService("smartvanio", "update_config_entry", {
       device_id: device,
@@ -255,12 +254,17 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     });
   }
 
-  private _getAttributes(key: string) {
+  private _getAttributes(key: keyof Entities) {
     if (!key) {
-      return "";
+      return {};
     }
 
     const entity = this._entities[key];
+
+    if (!entity) {
+      return {};
+    }
+
     return this.hass.states[entity.entity_id!].attributes;
   }
 
@@ -268,6 +272,8 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     if (!this.hass) {
       return [];
     }
+
+    console.log(deviceId);
 
     return Object.values(this.hass.entities).filter(
       (entity) => entity.device_id === deviceId
@@ -282,7 +288,12 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     const entities = this._findEntitiesByDeviceId(device);
 
     const entitiesObject = entities.reduce((acc: Object, cur: Entity) => {
-      const newKey = cur.name!.replace(/ /g, "_").toLowerCase();
+      const newKey = cur.entity_id
+        .split("resistive_sensor")[1]
+        .split("_")
+        .slice(2)
+        .join("_")
+        .toLowerCase();
 
       return {
         ...acc,
