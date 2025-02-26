@@ -4,6 +4,8 @@
   "render_readme": true,
   "content_in_root": true,
   "version": "1.0.0",
+  "homeassistant": "2024.12.0",
+  "hacs": "2.0.1",
   "codeowners": ["jameslouiz"],
   "domain": "smartvanio"
 }
