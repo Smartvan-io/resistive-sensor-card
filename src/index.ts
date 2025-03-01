@@ -1,6 +1,7 @@
 import { LitElement, html, css, PropertyValueMap } from "lit";
 
 import set from "lodash.set";
+import get from "lodash.get";
 import { customElement, property, state } from "lit/decorators.js";
 import "./indicator";
 import "./editor";
@@ -27,6 +28,16 @@ const computeR1 = (R2_min: number = 0, R2_max: number = 0) => {
   return R1;
 };
 
+async function getDevice(hass, device_id) {
+  // One option: fetch the entire list of devices and filter (simple but heavier)
+  const allDevices = hass.callWS({
+    type: "smartvanio/get_resistive_sensor_config_data",
+    device_id, // pass the actual device ID
+  });
+
+  return allDevices;
+}
+
 //[[0,0],[1.14,20],[1.37,40],[1.65,50],[1.76,65],[1.92,85],[2.2,100]]
 @customElement("smartvan-io-resistive-sensor")
 class SmartVanIOResistiveSensorCard extends LitElement {
@@ -39,8 +50,18 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   @property({ attribute: false }) public entities!: {};
   @property({ attribute: false }) private _possibleDevices: Device[] = [];
   @property({ attribute: false }) public _entities!: Entities;
-  @property() private interpolationPoints = [];
+  @property({ attribute: false }) private sensorMeta = {};
   @state() private activeSensor = 1;
+
+  constructor() {
+    super();
+    window.loadCardHelpers().then((helpers) => {
+      helpers.importMoreInfoControl("weather");
+
+      customElements.get("mwc-tab-bar");
+      customElements.get("mwc-tab");
+    });
+  }
 
   static getConfigElement() {
     return document.createElement("smartvan-io-resistive-sensor-editor");
@@ -70,8 +91,20 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   protected updated(
     _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
   ): void {
-    if (!this.config.device) {
-      return;
+    if (_changedProperties.has("config")) {
+      const device = this._possibleDevices.find(
+        (dev) => dev.id === this.config.device
+      );
+
+      if (!device) {
+        return;
+      }
+
+      const name = device.name?.replace(" ", "-");
+
+      getDevice(this.hass, name).then((response) => {
+        this.sensorMeta = response;
+      });
     }
   }
 
@@ -81,30 +114,12 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     this._possibleDevices = Object.values(this.hass.devices)
       .filter((item) => item.manufacturer === "smartvanio")
       .filter((item) => item.model === "resistive_sensor");
-
-    if (!this.config?.device) {
-      if (this._possibleDevices.length === 1) {
-        this._entities = this._getEntitiesForDevice(
-          this._possibleDevices[0].id
-        );
-        fireEvent(this, "config-changed", {
-          config: {
-            ...this.config,
-            device: this._possibleDevices[0].id,
-          },
-        });
-      }
-    } else {
-      this._entities = this._getEntitiesForDevice(this.config.device);
-    }
   }
 
   render() {
     if (!this.config || !this._entities) {
       return html`<ha-card>Loading...</ha-card>`;
     }
-
-    const interpolationPoints = this._getPoints(this.activeSensor);
 
     return html`
       <ha-card>
@@ -115,11 +130,15 @@ class SmartVanIOResistiveSensorCard extends LitElement {
         <div class="card-content">
           <mwc-tab-bar
             activeIndex=${this.activeSensor - 1}
-            @MDCTabBar:activated=${(e) =>
+            @MDCTabBar:activated=${(e: any) =>
               (this.activeSensor = e.detail.index + 1)}
           >
-            <mwc-tab label="Sensor 1"></mwc-tab>
-            <mwc-tab label="Sensor 2"></mwc-tab>
+            <mwc-tab
+              label=${get(this.sensorMeta, ["sensor_1", "name"], "Sensor 1")}
+            ></mwc-tab>
+            <mwc-tab
+              label=${get(this.sensorMeta, ["sensor_2", "name"], "Sensor 2")}
+            ></mwc-tab>
           </mwc-tab-bar>
           <div>
             <h3>Sensor Data</h3>
@@ -153,13 +172,16 @@ class SmartVanIOResistiveSensorCard extends LitElement {
                 ).entity_id,
               }}
             >
-              ${this.hass.formatEntityState(
-                this._getStateObj(
+              ${this.hass.formatEntityState({
+                ...this._getStateObj(
                   this._getEntityKey(
                     `sensor_${this.activeSensor}_interpolated_value`
                   )
-                )
-              )}
+                ),
+                attributes: {
+                  unit_of_measurement: "",
+                },
+              })}
             </hui-generic-entity-row>
           </div>
         </div>
@@ -172,14 +194,9 @@ class SmartVanIOResistiveSensorCard extends LitElement {
       throw new Error("You need to define a smartvan.io inclinometer");
     }
 
-    this.config = config;
-
-    window.loadCardHelpers().then((helpers) => {
-      helpers.importMoreInfoControl("weather");
-
-      customElements.get("mwc-tab-bar");
-      customElements.get("mwc-tab");
-    });
+    this.config = {
+      ...config,
+    };
   }
 
   _getEntityKey(key: string) {
@@ -194,86 +211,15 @@ class SmartVanIOResistiveSensorCard extends LitElement {
     return this._entities[key] || {};
   }
 
-  _getPoints(sensor: number = 0) {
-    return JSON.parse(
-      this._getState(
-        this._getEntityKey(`sensor_${sensor}_interpolation_points`)
-      )
-    );
-  }
-
   _getStateObj(key: keyof Entities) {
     const entity = this._getEntity(key);
     return this.hass.states[entity.entity_id];
-  }
-
-  _setPoint(value: string, index: number, point: number, sensor: number) {
-    const device = this.hass.devices[this.config.device].name.replace(" ", "-");
-    const interpolationPoints = this._getPoints(sensor);
-
-    this.hass
-      .callService("text", "set_value", {
-        entity_id: this._getEntity(
-          this._getEntityKey(`sensor_${sensor}_interpolation_points`)
-        ).entity_id,
-        value: JSON.stringify(
-          set([...interpolationPoints], [index, point], Number(value))
-        ),
-      })
-      .then(console.log)
-      .catch(console.log);
-  }
-
-  _addPoint(sensor: number) {
-    const device = this.hass.devices[this.config.device].name.replace(" ", "-");
-    const interpolationPoints = JSON.parse(
-      this._getAttributes(
-        this._getEntityKey(`sensor_${sensor}_interpolated_value`)
-      ).interpolation_points
-    );
-
-    // this.interpolationPoints = [...interpolationPoints, [0, 0]];
-
-    this.hass.callService("smartvanio", "update_config_entry", {
-      device_id: device,
-      sensor_id: `sensor_${sensor}`,
-      interpolation_points: JSON.stringify([...interpolationPoints, [0, 0]]),
-    });
-  }
-
-  _removePoint(sensor: number, point: number) {
-    const device = this.hass.devices[this.config.device].name.replace(" ", "-");
-    const interpolationPoints = this._getPoints(sensor).filter(
-      (p, index: number) => index !== point
-    );
-
-    this.hass.callService("smartvanio", "update_config_entry", {
-      device_id: device,
-      sensor_id: `sensor_${sensor}`,
-      interpolation_points: JSON.stringify([...interpolationPoints]),
-    });
-  }
-
-  private _getAttributes(key: keyof Entities) {
-    if (!key) {
-      return {};
-    }
-
-    const entity = this._entities[key];
-
-    if (!entity) {
-      return {};
-    }
-
-    return this.hass.states[entity.entity_id!].attributes;
   }
 
   _findEntitiesByDeviceId(deviceId: string) {
     if (!this.hass) {
       return [];
     }
-
-    console.log(deviceId);
 
     return Object.values(this.hass.entities).filter(
       (entity) => entity.device_id === deviceId

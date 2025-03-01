@@ -1,7 +1,9 @@
 import { LitElement, html, nothing, css, PropertyValueMap } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { fireEvent, LovelaceCardEditor } from "custom-card-helpers";
+import get from "lodash.get";
 import set from "lodash.set";
+import isEqual from "lodash.isequal";
 import {
   Config,
   Device,
@@ -10,29 +12,15 @@ import {
   ExtendedHomeAssistant,
 } from "./types";
 
-const options = [
-  {
-    text: "Water tank",
-    value: "water_tank",
-  },
-  {
-    text: "Thermometer",
-    value: "thermometer",
-  },
-];
+async function getDevice(hass: ExtendedHomeAssistant, device_id: string) {
+  // One option: fetch the entire list of devices and filter (simple but heavier)
+  const allDevices = hass.callWS({
+    type: "smartvanio/get_resistive_sensor_config_data",
+    device_id, // pass the actual device ID
+  });
 
-const computeR1 = (R2_min: number = 0, R2_max: number = 0) => {
-  const Vin = 5;
-  const Vout_max = 2.9;
-
-  // R1 = (Vin * R2_max / Vout_max) - R2_max
-  const R2 = Math.max(R2_min, R2_max);
-  const numerator = Vin * R2;
-  const denominator = Vout_max;
-  const R1 = numerator / denominator - R2;
-
-  return R1;
-};
+  return allDevices;
+}
 
 const hasPoints = (points = []) => {
   const [p1, p2] = points;
@@ -47,41 +35,24 @@ class SmartVanIOResistiveSensorCardEditor
   @property({ attribute: false }) public hass!: ExtendedHomeAssistant;
   @property({ attribute: false }) public _entities!: Entities;
   @property({ attribute: false }) private _possibleDevices: Device[] = [];
+  @property({ attribute: false }) private sensorMeta = {};
+  @property({ attribute: false }) private _interpolationPoints = [];
   @state() private _config: Config = {
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
   };
-  @state() private _interpolationPoints = [];
-  @state() private activeSensor = 1;
-
-  // static styles = css`
-  //   .card-config {
-  //     display: flex;
-  //     flex-direction: column;
-  //   }
-  // .full-width-select {
-  //   width: 100%;
-  //   margin-bottom: 10px;
-  // }
-  // .mb {
-  //   margin-bottom: 32px;
-  // }
-  //   .input-group {
-  //     display: flex;
-  //     align-items: center;
-  //     margin-bottom: 10px;
-  //     justify-content: space-between;
-  //   }
-  //   .alert {
-  //     margin-bottom: 10px;
-  //   }
-  // `;
+  @state() private _activeSensor = 1;
 
   static styles = css`
     .row {
       display: flex;
       margin-bottom: 8px;
       gap: 8px;
+    }
+
+    .field {
+      display: flex;
+      flex: 1;
     }
 
     .full-width-select {
@@ -98,6 +69,10 @@ class SmartVanIOResistiveSensorCardEditor
       }
     }
 
+    .invisible {
+      opacity: 0;
+    }
+
     .mb {
       margin-bottom: 32px;
     }
@@ -111,9 +86,9 @@ class SmartVanIOResistiveSensorCardEditor
   public setConfig(config: Config): void {
     this._entities = this._getEntitiesForDevice(config.device);
 
-    this._possibleDevices = Object.values(this.hass.devices)
-      .filter((item) => item.manufacturer === "smartvanio")
-      .filter((item) => item.model === "resistive_sensor");
+    // this._possibleDevices = Object.values(this.hass.devices)
+    //   .filter((item) => item.manufacturer === "smartvanio")
+    //   .filter((item) => item.model === "resistive_sensor");
 
     if (!config?.device) {
       if (this._possibleDevices.length === 1) {
@@ -136,33 +111,65 @@ class SmartVanIOResistiveSensorCardEditor
     };
   }
 
-  protected updated(
-    _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
-  ): void {
-    const computedR1 = computeR1(
-      this._config.minResistance,
-      this._config.maxResistance
-    );
+  protected firstUpdated(): void {
+    this._possibleDevices = Object.values(this.hass.devices)
+      .filter((item) => item.manufacturer === "smartvanio")
+      .filter((item) => item.model === "resistive_sensor");
+  }
 
-    if (_changedProperties.has("_interpolationPoints")) {
-      console.log(this._interpolationPoints);
+  private _handleInterpolationPointsChange(
+    _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
+  ) {
+    if (_changedProperties.has("_interpolationPoints") && this._entities) {
+      const change = _changedProperties.get("_interpolationPoints");
+
+      if (isEqual(change, this._interpolationPoints)) {
+        return;
+      }
+
       this.hass.callService("text", "set_value", {
         entity_id: this._getEntity(
-          this._getEntityKey(`sensor_${this.activeSensor}_interpolation_points`)
+          this._getEntityKey(
+            `sensor_${this._activeSensor}_interpolation_points`
+          )
         ).entity_id,
         value: JSON.stringify(this._interpolationPoints),
       });
     }
+  }
 
-    if (_changedProperties.has("activeSensor")) {
-      this._interpolationPoints = this._getPoints(this.activeSensor);
+  private _handleSensorMeta(
+    _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
+  ) {
+    if (_changedProperties.has("_config")) {
+      const change = _changedProperties.get("_config") || {};
+
+      if (this._config.device === change.device) {
+        return;
+      }
+
+      const device = this._possibleDevices.find(
+        (dev) => dev.id === this._config.device
+      );
+
+      if (!device) {
+        return;
+      }
+
+      const name = device.name.replace(" ", "-");
+
+      getDevice(this.hass, name).then((response) => {
+        this.sensorMeta = response;
+      });
     }
   }
 
-  protected firstUpdated(
+  protected updated(
     _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
   ): void {
-    this._interpolationPoints = this._getPoints();
+    this._handleInterpolationPointsChange(_changedProperties);
+    this._handleSensorMeta(_changedProperties);
+    // Handle fetching new config entry data
   }
 
   // Render your editor form
@@ -173,9 +180,7 @@ class SmartVanIOResistiveSensorCardEditor
       !this._config.device ||
       this._getEntityStates()?.some((item) => item === "unavailable");
 
-    const interpolationPoints = this._interpolationPoints;
-
-    console.log(hasPoints(interpolationPoints[interpolationPoints.length - 1]));
+    const interpolationPoints = this._getPoints(this._activeSensor);
 
     return html`
       <div class="card-config">
@@ -207,53 +212,72 @@ class SmartVanIOResistiveSensorCardEditor
             applied instantly! Clicking save will have no effect</ha-alert
           >
           <mwc-tab-bar
-            activeIndex=${this.activeSensor - 1}
+            activeIndex=${this._activeSensor - 1}
             @MDCTabBar:activated=${(e) =>
-              (this.activeSensor = e.detail.index + 1)}
+              (this._activeSensor = e.detail.index + 1)}
           >
-            <mwc-tab label="Sensor 1"></mwc-tab>
-            <mwc-tab label="Sensor 2"></mwc-tab>
+            <mwc-tab
+              label=${get(this.sensorMeta, ["sensor_1", "name"], "Sensor 1")}
+            ></mwc-tab>
+            <mwc-tab
+              label=${get(this.sensorMeta, ["sensor_2", "name"], "Sensor 2")}
+            ></mwc-tab>
           </mwc-tab-bar>
           <div>
-            <!-- <h3>Sensor internal resistance</h3>
+            <h3>Sensor internal resistance</h3>
             <div class="row">
               <ha-textfield
                 class="field"
                 label="Min Resistance"
-                .value=${this._config.minResistance}
+                .value=${this._getState(
+                  this._getEntityKey(
+                    `sensor_${this._activeSensor}_min_resistance`
+                  )
+                )}
                 type="number"
                 @change=${(e: any) => {
-              fireEvent(this, "config-changed", {
-                config: {
-                  ...this._config,
-                  minResistance: Number(e.target.value || 0),
-                },
-              });
-            }}
+                  this._setValue(
+                    this._getEntity(
+                      this._getEntityKey(
+                        `sensor_${this._activeSensor}_min_resistance`
+                      )
+                    ).entity_id,
+                    e.target.value
+                  );
+                }}
               ></ha-textfield>
               <ha-textfield
                 class="field"
                 label="Max Resistance"
-                .value=${this._config.maxResistance}
+                .value=${this._getState(
+                  this._getEntityKey(
+                    `sensor_${this._activeSensor}_max_resistance`
+                  )
+                )}
                 type="number"
                 @change=${(e: any) => {
-              fireEvent(this, "config-changed", {
-                config: {
-                  ...this._config,
-                  maxResistance: Number(e.target.value || 0),
-                },
-              });
-            }}
+                  this._setValue(
+                    this._getEntity(
+                      this._getEntityKey(
+                        `sensor_${this._activeSensor}_max_resistance`
+                      )
+                    ).entity_id,
+                    e.target.value
+                  );
+                }}
               ></ha-textfield>
-            </div> -->
+            </div>
 
             <div>
               <h3>Interpolation points (${interpolationPoints.length})</h3>
 
               ${[
                 ...interpolationPoints,
-                ...(interpolationPoints.length < 8 &&
-                hasPoints(interpolationPoints[interpolationPoints.length - 1])
+                ...((interpolationPoints.length < 8 &&
+                  hasPoints(
+                    interpolationPoints[interpolationPoints.length - 1]
+                  )) ||
+                !interpolationPoints.length
                   ? [[]]
                   : []),
               ].map(
@@ -280,7 +304,9 @@ class SmartVanIOResistiveSensorCardEditor
                         >
                           <ha-icon icon="mdi:close"></ha-icon>
                         </button>`
-                      : nothing}
+                      : html`<button class="button invisible" disabled>
+                          <ha-icon icon="mdi:close"></ha-icon>
+                        </button>`}
                   </div>
                 `
               )}
@@ -300,58 +326,54 @@ class SmartVanIOResistiveSensorCardEditor
     return key as keyof Entities;
   }
 
+  _getEntityId(key: string) {
+    return this._getEntity;
+  }
+
   _getState(key: keyof Entities) {
-    return this._getStateObj(key).state;
+    const obj = this._getStateObj(key);
+    if (!obj) {
+      return "unavailable";
+    }
+    return obj.state;
   }
 
   _getEntity(key: keyof Entities) {
+    if (!this._entities) {
+      return {} as Entity;
+    }
     return this._entities[key] || {};
   }
 
   _getPoints(sensor: number = 1) {
-    return JSON.parse(
-      this._getState(
-        this._getEntityKey(`sensor_${sensor}_interpolation_points`)
-      )
+    const state = this._getState(
+      this._getEntityKey(`sensor_${sensor}_interpolation_points`)
     );
+
+    try {
+      const points = JSON.parse(state);
+      return points.filter((item) => item);
+    } catch (e) {
+      return [];
+    }
   }
 
   _setPoint(value: string, index: number, point: number) {
-    const device = this.hass.devices[this._config.device].name.replace(
-      " ",
-      "-"
-    );
-
     this._interpolationPoints = set(
-      [...this._interpolationPoints],
+      JSON.parse(JSON.stringify(this._interpolationPoints)),
       [index, point],
       Number(value)
     );
   }
 
   _addPoint() {
-    const device = this.hass.devices[this._config.device].name.replace(
-      " ",
-      "-"
-    );
-
     this._interpolationPoints = [...this._interpolationPoints, ["0", "0"]];
   }
 
   _removePoint(point: number) {
-    const device = this.hass.devices[this._config.device].name.replace(
-      " ",
-      "-"
-    );
     this._interpolationPoints = this._interpolationPoints.filter(
       (p, index: number) => index !== point
     );
-
-    // this.hass.callService("smartvanio", "update_config_entry", {
-    //   device_id: device,
-    //   sensor_id: `sensor_${sensor}`,
-    //   interpolation_points: JSON.stringify([...interpolationPoints]),
-    // });
   }
 
   private _getEntityStates() {
@@ -397,8 +419,6 @@ class SmartVanIOResistiveSensorCardEditor
 
     return entitiesObject;
   }
-
-  private _setWiper(value) {}
 
   private _setDevice(device: string) {
     this._entities = this._getEntitiesForDevice(device);
