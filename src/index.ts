@@ -1,6 +1,5 @@
 import { LitElement, html, css, PropertyValueMap } from "lit";
 
-import set from "lodash.set";
 import get from "lodash.get";
 import { customElement, property, state } from "lit/decorators.js";
 import "./indicator";
@@ -10,23 +9,8 @@ import {
   Device,
   Entity,
   ExtendedHomeAssistant,
-  Attributes,
   Entities,
 } from "src/types";
-import { fireEvent, LovelaceCardEditor } from "custom-card-helpers";
-
-const computeR1 = (R2_min: number = 0, R2_max: number = 0) => {
-  const Vin = 5;
-  const Vout_max = 2.9;
-
-  // R1 = (Vin * R2_max / Vout_max) - R2_max
-  const R2 = Math.max(R2_min, R2_max);
-  const numerator = Vin * R2;
-  const denominator = Vout_max;
-  const R1 = numerator / denominator - R2;
-
-  return R1;
-};
 
 async function getDevice(hass, device_id) {
   // One option: fetch the entire list of devices and filter (simple but heavier)
@@ -38,7 +22,6 @@ async function getDevice(hass, device_id) {
   return allDevices;
 }
 
-//[[0,0],[1.14,20],[1.37,40],[1.65,50],[1.76,65],[1.92,85],[2.2,100]]
 @customElement("smartvan-io-resistive-sensor")
 class SmartVanIOResistiveSensorCard extends LitElement {
   @property({ attribute: false }) public hass!: ExtendedHomeAssistant;

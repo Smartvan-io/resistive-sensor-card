@@ -1,6 +1,6 @@
-## Smartvan.io Inclinometer card
+## Smartvan.io Resistive Sensor Config & Calibration card
 
-A simple card to mange and configure the resistive sensor module. The sensor module can be interactive calibrated by defining fixed data points that can be used to interpolate the final value.
+A simple card to manage and configure the resistive sensor module. The sensor module can be interactively calibrated by defining fixed data points that can be used to interpolate the final value.
 
 ### Installing with HACS
 
