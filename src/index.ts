@@ -2,7 +2,6 @@ import { LitElement, html, css, PropertyValueMap } from "lit";
 
 import get from "lodash.get";
 import { customElement, property, state } from "lit/decorators.js";
-import "./indicator";
 import "./editor";
 import {
   Config,
@@ -88,12 +87,12 @@ class SmartVanIOResistiveSensorCard extends LitElement {
       getDevice(this.hass, name).then((response) => {
         this.sensorMeta = response;
       });
+
+      this._entities = this._getEntitiesForDevice(device.id);
     }
   }
 
   protected firstUpdated(): void {
-    this._entities = this._getEntitiesForDevice(this.config.device);
-
     this._possibleDevices = Object.values(this.hass.devices)
       .filter((item) => item.manufacturer === "smartvanio")
       .filter((item) => item.model === "resistive_sensor");
@@ -174,7 +173,7 @@ class SmartVanIOResistiveSensorCard extends LitElement {
 
   public setConfig(config: Config) {
     if (!config.device) {
-      throw new Error("You need to define a smartvan.io inclinometer");
+      throw new Error("You need to define a smartvan.io resistive sensor");
     }
 
     this.config = {
