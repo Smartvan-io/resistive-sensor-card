@@ -91,17 +91,17 @@ class SmartVanIOResistiveSensorCardEditor
     //   .filter((item) => item.model === "resistive_sensor");
 
     if (!config?.device) {
-      if (this._possibleDevices.length === 1) {
-        this._entities = this._getEntitiesForDevice(
-          this._possibleDevices[0].id
-        );
-        fireEvent(this, "config-changed", {
-          config: {
-            ...config,
-            device: this._possibleDevices[0].id,
-          },
-        });
-      }
+      // if (this._possibleDevices.length === 1) {
+      //   this._entities = this._getEntitiesForDevice(
+      //     this._possibleDevices[0].id
+      //   );
+      //   fireEvent(this, "config-changed", {
+      //     config: {
+      //       ...config,
+      //       device: this._possibleDevices[0].id,
+      //     },
+      //   });
+      // }
     } else {
       this._entities = this._getEntitiesForDevice(config.device);
     }
@@ -115,6 +115,8 @@ class SmartVanIOResistiveSensorCardEditor
     this._possibleDevices = Object.values(this.hass.devices)
       .filter((item) => item.manufacturer === "smartvanio")
       .filter((item) => item.model === "resistive_sensor");
+
+    this._interpolationPoints = this._getPoints();
   }
 
   private _handleInterpolationPointsChange(
@@ -271,16 +273,7 @@ class SmartVanIOResistiveSensorCardEditor
             <div>
               <h3>Interpolation points (${interpolationPoints.length})</h3>
 
-              ${[
-                ...interpolationPoints,
-                ...((interpolationPoints.length < 8 &&
-                  hasPoints(
-                    interpolationPoints[interpolationPoints.length - 1]
-                  )) ||
-                !interpolationPoints.length
-                  ? [[]]
-                  : []),
-              ].map(
+              ${interpolationPoints.map(
                 (point, index) => html`
                   <div class="row">
                     <ha-textfield
@@ -310,6 +303,13 @@ class SmartVanIOResistiveSensorCardEditor
                   </div>
                 `
               )}
+              ${html`<button
+                class="button"
+                .disabled=${!(interpolationPoints.length < 8)}
+                @click=${() => this._addPoint()}
+              >
+                <ha-icon icon="mdi:plus"></ha-icon> Add point
+              </button>`}
             </div>
           </div>
         </div>
@@ -359,15 +359,17 @@ class SmartVanIOResistiveSensorCardEditor
   }
 
   _setPoint(value: string, index: number, point: number) {
+    const interpolationPoints = this._getPoints();
     this._interpolationPoints = set(
-      JSON.parse(JSON.stringify(this._interpolationPoints)),
+      JSON.parse(JSON.stringify(interpolationPoints)),
       [index, point],
       Number(value)
     );
   }
 
   _addPoint() {
-    this._interpolationPoints = [...this._interpolationPoints, ["0", "0"]];
+    const interpolationPoints = this._getPoints();
+    this._interpolationPoints = [...interpolationPoints, [0, 0]];
   }
 
   _removePoint(point: number) {
