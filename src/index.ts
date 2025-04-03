@@ -101,6 +101,7 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   render() {
     return html`
       <ha-card>
+        hello
         <ha-dialog-header>
           <span slot="title">Sensor Config</span>
         </ha-dialog-header>

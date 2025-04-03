@@ -36,12 +36,18 @@ class SmartVanIOResistiveSensorCardEditor
   @property({ attribute: false }) public _entities!: Entities;
   @property({ attribute: false }) private _possibleDevices: Device[] = [];
   @property({ attribute: false }) private sensorMeta = {};
-  @property({ attribute: false }) private _interpolationPoints = [];
+
   @state() private _config: Config = {
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
   };
-  @state() private _activeSensor = 1;
+  @state() private _activeSensor: 1 | 2 = 1;
+  @state() private _interpolationPoints = [];
+  @state() private _interpolationPointsState = {
+    init: false,
+    "1": [],
+    "2": [],
+  };
 
   static styles = css`
     .row {
@@ -90,19 +96,7 @@ class SmartVanIOResistiveSensorCardEditor
     //   .filter((item) => item.manufacturer === "smartvanio")
     //   .filter((item) => item.model === "resistive_sensor");
 
-    if (!config?.device) {
-      // if (this._possibleDevices.length === 1) {
-      //   this._entities = this._getEntitiesForDevice(
-      //     this._possibleDevices[0].id
-      //   );
-      //   fireEvent(this, "config-changed", {
-      //     config: {
-      //       ...config,
-      //       device: this._possibleDevices[0].id,
-      //     },
-      //   });
-      // }
-    } else {
+    if (config?.device) {
       this._entities = this._getEntitiesForDevice(config.device);
     }
 
@@ -172,6 +166,49 @@ class SmartVanIOResistiveSensorCardEditor
     this._handleInterpolationPointsChange(_changedProperties);
     this._handleSensorMeta(_changedProperties);
     // Handle fetching new config entry data
+
+    if (
+      _changedProperties.has("_entities") &&
+      _changedProperties.get("_entities")
+    ) {
+      if (!this._interpolationPointsState.init) {
+        const sensor_1_interpolation_points = this._getPoints(1);
+        const sensor_2_interpolation_points = this._getPoints(2);
+        this._interpolationPointsState = {
+          init: true,
+          "1": sensor_1_interpolation_points,
+          "2": sensor_2_interpolation_points,
+        };
+      }
+    }
+
+    if (_changedProperties.has("_interpolationPointsState")) {
+      if (
+        !(
+          !_changedProperties.get("_interpolationPointsState") &&
+          !this._interpolationPointsState.init
+        )
+      ) {
+        const interpolationPoints: number[][] =
+          this._interpolationPointsState[`${this._activeSensor}`];
+        const last = interpolationPoints.at(-1);
+
+        if (interpolationPoints.every(hasPoints) && !isEqual(last, [0, 0])) {
+          console.log("CHANGES", "REPEATED");
+
+          this.hass.callService("text", "set_value", {
+            entity_id: this._getEntity(
+              this._getEntityKey(
+                `sensor_${this._activeSensor}_interpolation_points`
+              )
+            ).entity_id,
+            value: JSON.stringify(
+              this._interpolationPointsState[this._activeSensor]
+            ),
+          });
+        }
+      }
+    }
   }
 
   // Render your editor form
@@ -182,7 +219,10 @@ class SmartVanIOResistiveSensorCardEditor
       !this._config.device ||
       this._getEntityStates()?.some((item) => item === "unavailable");
 
-    const interpolationPoints = this._getPoints(this._activeSensor);
+    const interpolationPoints =
+      this._interpolationPointsState[this._activeSensor] || [];
+
+    console.log("CHANGES", interpolationPoints);
 
     return html`
       <div class="card-config">
@@ -359,23 +399,39 @@ class SmartVanIOResistiveSensorCardEditor
   }
 
   _setPoint(value: string, index: number, point: number) {
-    const interpolationPoints = this._getPoints();
-    this._interpolationPoints = set(
-      JSON.parse(JSON.stringify(interpolationPoints)),
-      [index, point],
-      Number(value)
-    );
+    const interpolationPoints =
+      this._interpolationPointsState[this._activeSensor];
+
+    this._interpolationPointsState = {
+      ...this._interpolationPointsState,
+      [this._activeSensor]: set(
+        JSON.parse(JSON.stringify(interpolationPoints)),
+        [index, point],
+        Number(value)
+      ),
+    };
   }
 
   _addPoint() {
-    const interpolationPoints = this._getPoints();
-    this._interpolationPoints = [...interpolationPoints, [0, 0]];
+    const interpolationPoints =
+      this._interpolationPointsState[this._activeSensor];
+
+    this._interpolationPointsState = {
+      ...this._interpolationPointsState,
+      [this._activeSensor]: [...interpolationPoints, []],
+    };
   }
 
   _removePoint(point: number) {
-    this._interpolationPoints = this._interpolationPoints.filter(
-      (p, index: number) => index !== point
-    );
+    const interpolationPoints =
+      this._interpolationPointsState[this._activeSensor];
+
+    this._interpolationPointsState = {
+      ...this._interpolationPointsState,
+      [this._activeSensor]: interpolationPoints.filter(
+        (p, index: number) => index !== point
+      ),
+    };
   }
 
   private _getEntityStates() {

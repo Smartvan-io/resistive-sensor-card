@@ -36,9 +36,10 @@ export interface Entities {
   sensor_1_open_circuit_voltage_theshold: Entity;
   sensor_1_wiper_value: Entity;
   sensor_1_interpolated_value: Entity;
+  sensor_1_interpolation_points: Entity;
   sensor_2_raw: Entity;
   sensor_2_input_open: Entity;
   sensor_2_open_circuit_voltage_theshold: Entity;
   sensor_2_wiper_value: Entity;
-  sensor_2_interpolated_value: Entity;
+  sensor_2_interpolation_points: Entity;
 }
