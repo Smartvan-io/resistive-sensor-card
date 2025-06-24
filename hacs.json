@@ -3,7 +3,7 @@
   "filename": "index.js",
   "render_readme": true,
   "content_in_root": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "homeassistant": "2025.4.0",
   "hacs": "2.0.1",
   "codeowners": ["jameslouiz"],
