@@ -41,7 +41,7 @@ class SmartVanIOResistiveSensorCardEditor
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
   };
-  @state() private _activeSensor: 1 | 2 = 1;
+  @state() private _activeSensor: number = 1;
   @state() private _interpolationPoints = [];
   @state() private _interpolationPointsState = {
     init: false,
@@ -211,6 +211,14 @@ class SmartVanIOResistiveSensorCardEditor
     }
   }
 
+  private _handleTabChanged(ev: CustomEvent): void {
+    const newTab = Number(ev.detail.name);
+    if (newTab === this._activeSensor) {
+      return;
+    }
+    this._activeSensor = newTab;
+  }
+
   // Render your editor form
   render() {
     if (!this.hass || !this._config) return nothing;
@@ -221,8 +229,6 @@ class SmartVanIOResistiveSensorCardEditor
 
     const interpolationPoints =
       this._interpolationPointsState[this._activeSensor] || [];
-
-    console.log("CHANGES", interpolationPoints);
 
     return html`
       <div class="card-config">
@@ -253,18 +259,14 @@ class SmartVanIOResistiveSensorCardEditor
             >Note, the settings below are stored on the device and will be
             applied instantly! Clicking save will have no effect</ha-alert
           >
-          <mwc-tab-bar
-            activeIndex=${this._activeSensor - 1}
-            @MDCTabBar:activated=${(e) =>
-              (this._activeSensor = e.detail.index + 1)}
-          >
-            <mwc-tab
-              label=${get(this.sensorMeta, ["sensor_1", "name"], "Sensor 1")}
-            ></mwc-tab>
-            <mwc-tab
-              label=${get(this.sensorMeta, ["sensor_2", "name"], "Sensor 2")}
-            ></mwc-tab>
-          </mwc-tab-bar>
+          <sl-tab-group @sl-tab-show=${this._handleTabChanged}>
+            <sl-tab panel="1" .active=${this._activeSensor === 1}
+              >${get(this.sensorMeta, ["sensor_1", "name"], "Sensor 1")}</sl-tab
+            >
+            <sl-tab panel="2" .active=${this._activeSensor === 2}
+              >${get(this.sensorMeta, ["sensor_2", "name"], "Sensor 2")}</sl-tab
+            >
+          </sl-tab-group>
           <div>
             <h3>Sensor internal resistance</h3>
             <div class="row">
