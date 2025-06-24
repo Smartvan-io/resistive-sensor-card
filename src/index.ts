@@ -98,7 +98,16 @@ class SmartVanIOResistiveSensorCard extends LitElement {
       .filter((item) => item.model === "resistive_sensor");
   }
 
+  private _handleTabChanged(ev: CustomEvent): void {
+    const newTab = Number(ev.detail.name);
+    if (newTab === this.activeSensor) {
+      return;
+    }
+    this.activeSensor = newTab;
+  }
+
   render() {
+    console.log(this.activeSensor);
     return html`
       <ha-card>
         <ha-dialog-header>
@@ -108,70 +117,67 @@ class SmartVanIOResistiveSensorCard extends LitElement {
         <div class="card-content">
           ${this.config && this._entities
             ? html`
-                <mwc-tab-bar
-                  activeIndex=${this.activeSensor - 1}
-                  @MDCTabBar:activated=${(e: any) =>
-                    (this.activeSensor = e.detail.index + 1)}
-                >
-                  <mwc-tab
-                    label=${get(
+                <sl-tab-group @sl-tab-show=${this._handleTabChanged}>
+                  <sl-tab panel="1" .active=${this.activeSensor === 1}
+                    >${get(
                       this.sensorMeta,
                       ["sensor_1", "name"],
                       "Sensor 1"
-                    )}
-                  ></mwc-tab>
-                  <mwc-tab
-                    label=${get(
+                    )}</sl-tab
+                  >
+                  <sl-tab panel="2" .active=${this.activeSensor === 2}
+                    >${get(
                       this.sensorMeta,
                       ["sensor_2", "name"],
                       "Sensor 2"
-                    )}
-                  ></mwc-tab>
-                </mwc-tab-bar>
-                <div>
-                  <h3>Sensor Data</h3>
-                  <hui-generic-entity-row
-                    .hass=${this.hass}
-                    .config=${{
-                      type: "sensor",
-                      title: "test",
-                      entity: this._getEntity(
-                        this._getEntityKey(`sensor_${this.activeSensor}_raw`)
-                      ).entity_id,
-                    }}
+                    )}</sl-tab
                   >
-                    ${this.hass.formatEntityState(
-                      this._getStateObj(
-                        this._getEntityKey(`sensor_${this.activeSensor}_raw`)
-                      )
-                    )}
-                  </hui-generic-entity-row>
 
-                  <hui-generic-entity-row
-                    .hass=${this.hass}
-                    .config=${{
-                      type: "sensor",
-                      domain: "sensor",
-                      title: "test",
-                      entity: this._getEntity(
-                        this._getEntityKey(
-                          `sensor_${this.activeSensor}_interpolated_value`
+                  <div>
+                    <h3>Sensor Data</h3>
+                    <hui-generic-entity-row
+                      .hass=${this.hass}
+                      .config=${{
+                        type: "sensor",
+                        title: "test",
+                        entity: this._getEntity(
+                          this._getEntityKey(`sensor_${this.activeSensor}_raw`)
+                        ).entity_id,
+                      }}
+                    >
+                      ${this.hass.formatEntityState(
+                        this._getStateObj(
+                          this._getEntityKey(`sensor_${this.activeSensor}_raw`)
                         )
-                      ).entity_id,
-                    }}
-                  >
-                    ${this.hass.formatEntityState({
-                      ...this._getStateObj(
-                        this._getEntityKey(
-                          `sensor_${this.activeSensor}_interpolated_value`
-                        )
-                      ),
-                      attributes: {
-                        unit_of_measurement: "",
-                      },
-                    })}
-                  </hui-generic-entity-row>
-                </div>
+                      )}
+                    </hui-generic-entity-row>
+
+                    <hui-generic-entity-row
+                      .hass=${this.hass}
+                      .config=${{
+                        type: "sensor",
+                        domain: "sensor",
+                        title: "test",
+                        entity: this._getEntity(
+                          this._getEntityKey(
+                            `sensor_${this.activeSensor}_interpolated_value`
+                          )
+                        ).entity_id,
+                      }}
+                    >
+                      ${this.hass.formatEntityState({
+                        ...this._getStateObj(
+                          this._getEntityKey(
+                            `sensor_${this.activeSensor}_interpolated_value`
+                          )
+                        ),
+                        attributes: {
+                          unit_of_measurement: "",
+                        },
+                      })}
+                    </hui-generic-entity-row>
+                  </div>
+                </sl-tab-group>
               `
             : html`<div>
                 There has been a problem loading the device config
