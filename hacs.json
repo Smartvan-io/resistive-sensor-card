@@ -3,8 +3,8 @@
   "filename": "index.js",
   "render_readme": true,
   "content_in_root": true,
-  "version": "1.0.3",
-  "homeassistant": "2025.2.0",
+  "version": "1.0.4",
+  "homeassistant": "2025.4.0",
   "hacs": "2.0.1",
   "codeowners": ["jameslouiz"],
   "domain": "smartvanio"
