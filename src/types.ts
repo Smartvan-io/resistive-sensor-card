@@ -8,15 +8,21 @@ export interface Entity {
 }
 
 export interface ExtendedHomeAssistant extends HomeAssistant {
-  entities: Record<string, any>; // Adjust types based on your needs
-  devices: Record<string, any>; // Adjust types based on your needs
+  entities: Record<string, any>;
+  devices: Record<string, any>;
   formatEntityState: (entity: HassEntity) => string;
 }
 
+export type ResistiveVariant = "tile" | "gauge" | "bar";
+
 export interface Config extends LovelaceCardConfig {
   device: string;
-  minResistance?: number;
-  maxResistance?: number;
+  variant?: ResistiveVariant;
+  // Bounds the gauge / bar variants fill against. Default 0..100 fits
+  // the common case where calibration outputs a percentage. Override
+  // when calibration outputs litres / gallons.
+  min?: number;
+  max?: number;
 }
 
 export interface Device {
@@ -26,20 +32,8 @@ export interface Device {
   manufacturer?: string;
 }
 
-export interface Attributes {
-  interpolation_points: string;
-}
-
-export interface Entities {
-  sensor_1_raw: Entity;
-  sensor_1_input_open: Entity;
-  sensor_1_open_circuit_voltage_theshold: Entity;
-  sensor_1_wiper_value: Entity;
-  sensor_1_interpolated_value: Entity;
-  sensor_1_interpolation_points: Entity;
-  sensor_2_raw: Entity;
-  sensor_2_input_open: Entity;
-  sensor_2_open_circuit_voltage_theshold: Entity;
-  sensor_2_wiper_value: Entity;
-  sensor_2_interpolation_points: Entity;
-}
+export const VARIANT_OPTIONS: { value: ResistiveVariant; label: string }[] = [
+  { value: "tile", label: "Tile (per-sensor numbers)" },
+  { value: "gauge", label: "Gauge (circular fill)" },
+  { value: "bar", label: "Bar (horizontal fill)" },
+];

@@ -1,256 +1,194 @@
-import { LitElement, html, css, PropertyValueMap } from "lit";
-
-import get from "lodash.get";
-import { customElement, property, state } from "lit/decorators.js";
+import { LitElement, html, css } from "lit";
+import { customElement, property } from "lit/decorators.js";
 import "./editor";
-import {
-  Config,
-  Device,
-  Entity,
-  ExtendedHomeAssistant,
-  Entities,
-} from "src/types";
+import "./variants/tile";
+import "./variants/bar";
+import "./variants/gauge";
+import { Config, ExtendedHomeAssistant, ResistiveVariant } from "./types";
 
-async function getDevice(hass, device_id) {
-  // One option: fetch the entire list of devices and filter (simple but heavier)
-  const allDevices = hass.callWS({
-    type: "smartvanio/get_resistive_sensor_config_data",
-    device_id, // pass the actual device ID
-  });
-
-  return allDevices;
-}
-
+// Display-only card. Calibration (interpolation points, resistance
+// limits, kind, threshold) lives in the SmartVan.io add-on UI.
+//
+// Renders both physical channels of a resistive-sensor module, in the
+// chosen visual variant.
 @customElement("smartvan-io-resistive-sensor")
 class SmartVanIOResistiveSensorCard extends LitElement {
   @property({ attribute: false }) public hass!: ExtendedHomeAssistant;
-  @property({ attribute: false }) public config: Config = {
-    type: "custom:smartvan-io-resistive-sensor",
-    device: "",
-  };
-
-  @property({ attribute: false }) public entities!: {};
-  @property({ attribute: false }) private _possibleDevices: Device[] = [];
-  @property({ attribute: false }) public _entities!: Entities;
-  @property({ attribute: false }) private sensorMeta = {};
-  @state() private activeSensor = 1;
-
-  constructor() {
-    super();
-    window.loadCardHelpers().then((helpers) => {
-      helpers.importMoreInfoControl("weather");
-
-      customElements.get("mwc-tab-bar");
-      customElements.get("mwc-tab");
-    });
-  }
+  @property({ attribute: false }) public config!: Config;
 
   static getConfigElement() {
     return document.createElement("smartvan-io-resistive-sensor-editor");
   }
 
+  static getStubConfig() {
+    return { device: "", variant: "tile" };
+  }
+
   static styles = css`
-    .row {
+    :host {
+      display: block;
+    }
+    ha-card {
+      padding: 12px;
+    }
+    .header {
+      font-weight: 600;
+      padding: 4px 4px 12px;
+      color: var(--primary-text-color);
+    }
+    .placeholder {
+      padding: 16px;
+      color: var(--secondary-text-color);
+      text-align: center;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .stack {
       display: flex;
-      margin-bottom: 8px;
+      flex-direction: column;
       gap: 8px;
-    }
-
-    .button {
-      background: none;
-      border: none;
-
-      &:hover {
-        cursor: pointer;
-      }
-    }
-
-    ha-icon.icon {
-      margin-top: -9px;
     }
   `;
 
-  protected updated(
-    _changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>
-  ): void {
-    if (_changedProperties.has("config")) {
-      const device = this._possibleDevices.find(
-        (dev) => dev.id === this.config.device
-      );
-
-      if (!device) {
-        return;
-      }
-
-      const name = device.name?.replace(" ", "-");
-
-      getDevice(this.hass, name).then((response) => {
-        this.sensorMeta = response;
-      });
-
-      this._entities = this._getEntitiesForDevice(device.id);
+  public setConfig(config: Config) {
+    if (!config.device) {
+      throw new Error("You need to pick a SmartVan.io resistive sensor device");
     }
-  }
-
-  protected firstUpdated(): void {
-    this._possibleDevices = Object.values(this.hass.devices)
-      .filter((item) => item.manufacturer === "smartvanio")
-      .filter((item) => item.model === "resistive_sensor");
-  }
-
-  private _handleTabChanged(ev: CustomEvent): void {
-    const newTab = Number(ev.detail.name);
-    if (newTab === this.activeSensor) {
-      return;
-    }
-    this.activeSensor = newTab;
+    this.config = { variant: "tile", min: 0, max: 100, ...config };
   }
 
   render() {
-    console.log(this.activeSensor);
+    if (!this.config) return html`<ha-card>Loading…</ha-card>`;
+
+    const entities = this._entitiesForDevice(this.config.device);
+    if (entities.length === 0) {
+      return html`
+        <ha-card>
+          <div class="placeholder">
+            Configure this card in the SmartVan.io add-on, then come back.
+          </div>
+        </ha-card>
+      `;
+    }
+
+    const variant: ResistiveVariant = this.config.variant ?? "tile";
+    const sensors = [1, 2].map((n) => this._readSensor(n, entities));
+
     return html`
       <ha-card>
-        <ha-dialog-header>
-          <span slot="title">Sensor Config</span>
-        </ha-dialog-header>
-
-        <div class="card-content">
-          ${this.config && this._entities
-            ? html`
-                <sl-tab-group @sl-tab-show=${this._handleTabChanged}>
-                  <sl-tab panel="1" .active=${this.activeSensor === 1}
-                    >${get(
-                      this.sensorMeta,
-                      ["sensor_1", "name"],
-                      "Sensor 1"
-                    )}</sl-tab
-                  >
-                  <sl-tab panel="2" .active=${this.activeSensor === 2}
-                    >${get(
-                      this.sensorMeta,
-                      ["sensor_2", "name"],
-                      "Sensor 2"
-                    )}</sl-tab
-                  >
-
-                  <div>
-                    <h3>Sensor Data</h3>
-                    <hui-generic-entity-row
-                      .hass=${this.hass}
-                      .config=${{
-                        type: "sensor",
-                        title: "test",
-                        entity: this._getEntity(
-                          this._getEntityKey(`sensor_${this.activeSensor}_raw`)
-                        ).entity_id,
-                      }}
-                    >
-                      ${this.hass.formatEntityState(
-                        this._getStateObj(
-                          this._getEntityKey(`sensor_${this.activeSensor}_raw`)
-                        )
-                      )}
-                    </hui-generic-entity-row>
-
-                    <hui-generic-entity-row
-                      .hass=${this.hass}
-                      .config=${{
-                        type: "sensor",
-                        domain: "sensor",
-                        title: "test",
-                        entity: this._getEntity(
-                          this._getEntityKey(
-                            `sensor_${this.activeSensor}_interpolated_value`
-                          )
-                        ).entity_id,
-                      }}
-                    >
-                      ${this.hass.formatEntityState({
-                        ...this._getStateObj(
-                          this._getEntityKey(
-                            `sensor_${this.activeSensor}_interpolated_value`
-                          )
-                        ),
-                        attributes: {
-                          unit_of_measurement: "",
-                        },
-                      })}
-                    </hui-generic-entity-row>
-                  </div>
-                </sl-tab-group>
-              `
-            : html`<div>
-                There has been a problem loading the device config
-              </div>`}
-        </div>
+        <div class="header">Resistive sensors</div>
+        ${this._renderVariant(variant, sensors)}
       </ha-card>
     `;
   }
 
-  public setConfig(config: Config) {
-    if (!config.device) {
-      throw new Error("You need to define a smartvan.io resistive sensor");
-    }
+  private _renderVariant(variant: ResistiveVariant, sensors: SensorReading[]) {
+    const min = this.config.min ?? 0;
+    const max = this.config.max ?? 100;
 
-    this.config = {
-      ...config,
+    switch (variant) {
+      case "bar":
+        return html`
+          <div class="stack">
+            ${sensors.map(
+              (s) => html`
+                <smartvan-io-resistive-bar
+                  label=${s.label}
+                  .value=${s.interpolated}
+                  .min=${min}
+                  .max=${max}
+                  unit=${s.unit}
+                ></smartvan-io-resistive-bar>
+              `
+            )}
+          </div>
+        `;
+      case "gauge":
+        return html`
+          <div class="grid">
+            ${sensors.map(
+              (s) => html`
+                <smartvan-io-resistive-gauge
+                  label=${s.label}
+                  .value=${s.interpolated}
+                  .min=${min}
+                  .max=${max}
+                  unit=${s.unit}
+                ></smartvan-io-resistive-gauge>
+              `
+            )}
+          </div>
+        `;
+      case "tile":
+      default:
+        return html`
+          <div class="grid">
+            ${sensors.map(
+              (s) => html`
+                <smartvan-io-resistive-tile
+                  label=${s.label}
+                  interpolated=${s.interpolatedDisplay}
+                  raw=${s.rawDisplay}
+                  unit=${s.unit}
+                  .openCircuit=${s.openCircuit}
+                ></smartvan-io-resistive-tile>
+              `
+            )}
+          </div>
+        `;
+    }
+  }
+
+  private _readSensor(n: number, entities: any[]): SensorReading {
+    const findBySuffix = (suffix: string) =>
+      entities.find((e) => e.unique_id?.endsWith(`_${suffix}`)) ||
+      entities.find((e) => e.entity_id?.endsWith(`_${suffix}`));
+
+    const raw = findBySuffix(`sensor_${n}_raw`);
+    const interp = findBySuffix(`sensor_${n}_interpolated_value`);
+    const open = findBySuffix(`sensor_${n}_input_open`);
+
+    const rawState = raw ? this.hass.states[raw.entity_id] : undefined;
+    const interpState = interp ? this.hass.states[interp.entity_id] : undefined;
+    const openState = open ? this.hass.states[open.entity_id] : undefined;
+
+    const interpNum = parseFloat(interpState?.state ?? "");
+    const rawNum = parseFloat(rawState?.state ?? "");
+
+    return {
+      label: `Sensor ${n}`,
+      raw: rawNum,
+      rawDisplay: isNaN(rawNum) ? "—" : rawNum.toFixed(3),
+      interpolated: interpNum,
+      interpolatedDisplay: isNaN(interpNum) ? "—" : interpNum.toFixed(1),
+      unit: interpState?.attributes?.unit_of_measurement || "",
+      openCircuit: openState?.state === "on",
     };
   }
 
-  _getEntityKey(key: string) {
-    return key as keyof Entities;
-  }
-
-  _getState(key: keyof Entities) {
-    return this._getStateObj(key).state;
-  }
-
-  _getEntity(key: keyof Entities) {
-    return this._entities[key] || {};
-  }
-
-  _getStateObj(key: keyof Entities) {
-    const entity = this._getEntity(key);
-    return this.hass.states[entity.entity_id];
-  }
-
-  _findEntitiesByDeviceId(deviceId: string) {
-    if (!this.hass) {
-      return [];
-    }
-
+  private _entitiesForDevice(device: string): any[] {
+    if (!this.hass?.entities) return [];
     return Object.values(this.hass.entities).filter(
-      (entity) => entity.device_id === deviceId
+      (entity: any) => entity.device_id === device
     );
   }
 
-  _getEntitiesForDevice(device: string) {
-    if (!device) {
-      return {};
-    }
-
-    const entities = this._findEntitiesByDeviceId(device);
-
-    const entitiesObject = entities.reduce((acc: Object, cur: Entity) => {
-      const newKey = cur.entity_id
-        .split("resistive_sensor")[1]
-        .split("_")
-        .slice(2)
-        .join("_")
-        .toLowerCase();
-
-      return {
-        ...acc,
-        [newKey]: cur,
-      };
-    }, {});
-
-    return entitiesObject;
-  }
-
   getCardSize() {
-    return 1;
+    return 2;
   }
+}
+
+interface SensorReading {
+  label: string;
+  raw: number;
+  rawDisplay: string;
+  interpolated: number;
+  interpolatedDisplay: string;
+  unit: string;
+  openCircuit: boolean;
 }
 
 declare global {
@@ -259,13 +197,12 @@ declare global {
   }
 }
 
-// Typically in your main card file, e.g. my-card.js
 if (window.customCards) {
   window.customCards.push({
     type: "smartvan-io-resistive-sensor",
-    name: "Smartvan.io resistive sensor card",
+    name: "SmartVan.io Resistive Sensor",
     description:
-      "A purpose built card for Smartvan.io resistive sensor modules",
+      "Display-only card for SmartVan.io tank/level sensor modules. Pick a visual style; calibrate in the SmartVan.io add-on.",
     preview: true,
   });
 }
