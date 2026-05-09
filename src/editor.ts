@@ -49,9 +49,18 @@ class SmartVanIOResistiveSensorCardEditor
   `;
 
   public setConfig(config: Config): void {
+    // Match the integration's DeviceInfo: manufacturer="SmartVan.io" and a
+    // device identifier starting with "smartvanio-res-". The display model
+    // string can vary ("SmartVan.io Tank Sensor", etc.), so we don't rely on
+    // it for filtering — the identifier prefix is what's stable.
     this._possibleDevices = Object.values(this.hass?.devices || {})
-      .filter((item: any) => item.manufacturer === "smartvanio")
-      .filter((item: any) => item.model === "resistive_sensor");
+      .filter((item: any) => item.manufacturer === "SmartVan.io")
+      .filter((item: any) =>
+        (item.identifiers || []).some(
+          (id: [string, string]) =>
+            id[0] === "smartvanio" && id[1]?.startsWith("smartvanio-res-")
+        )
+      );
 
     if (!config.device && this._possibleDevices.length === 1) {
       fireEvent(this, "config-changed", {
