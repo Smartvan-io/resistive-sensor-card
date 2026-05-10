@@ -54,17 +54,30 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   `;
 
   public setConfig(config: Config) {
-    if (!config.device) {
-      throw new Error("You need to pick a SmartVan.io resistive sensor device");
-    }
+    // Never throw — HA's card preview pane keeps the card stuck in an
+    // error state if setConfig throws on the initial stub config (device
+    // is empty until the user picks one). Render a placeholder instead.
     this.config = { variant: "tile", min: 0, max: 100, ...config };
   }
 
   render() {
+    console.log("[smartvan-io-resistive] render", { config: this.config, hasHass: !!this.hass });
     if (!this.config) return html`<ha-card>Loading…</ha-card>`;
+
+    if (!this.config.device) {
+      console.log("[smartvan-io-resistive] render → placeholder1 (no device)");
+      return html`
+        <ha-card>
+          <div class="placeholder">
+            Pick a SmartVan.io resistive sensor in the editor.
+          </div>
+        </ha-card>
+      `;
+    }
 
     const entities = this._entitiesForDevice(this.config.device);
     if (entities.length === 0) {
+      console.log("[smartvan-io-resistive] render → placeholder2 (no entities)", { device: this.config.device });
       return html`
         <ha-card>
           <div class="placeholder">
@@ -74,6 +87,7 @@ class SmartVanIOResistiveSensorCard extends LitElement {
       `;
     }
 
+    console.log("[smartvan-io-resistive] render → real card", { device: this.config.device, entityCount: entities.length });
     const variant: ResistiveVariant = this.config.variant ?? "tile";
     const sensors = [1, 2].map((n) => this._readSensor(n, entities));
 
@@ -170,10 +184,19 @@ class SmartVanIOResistiveSensorCard extends LitElement {
   }
 
   private _entitiesForDevice(device: string): any[] {
-    if (!this.hass?.entities) return [];
-    return Object.values(this.hass.entities).filter(
-      (entity: any) => entity.device_id === device
-    );
+    if (!this.hass?.entities) {
+      console.log("[smartvan-io-resistive] no hass.entities", { hass: !!this.hass });
+      return [];
+    }
+    const all = Object.values(this.hass.entities);
+    const matches = all.filter((entity: any) => entity.device_id === device);
+    console.log("[smartvan-io-resistive] _entitiesForDevice", {
+      device,
+      hassEntitiesCount: all.length,
+      matchCount: matches.length,
+      sampleEntity: all.find((e: any) => e.entity_id?.includes("smartvanio_res")),
+    });
+    return matches;
   }
 
   getCardSize() {

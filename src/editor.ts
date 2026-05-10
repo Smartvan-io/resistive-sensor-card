@@ -1,17 +1,60 @@
-import { LitElement, html, nothing, css } from "lit";
+import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { fireEvent, LovelaceCardEditor } from "custom-card-helpers";
 import {
   Config,
-  Device,
   ExtendedHomeAssistant,
-  ResistiveVariant,
   VARIANT_OPTIONS,
 } from "./types";
 
-// Calibration (interpolation points, min/max resistance, interpolation
-// kind, open-circuit threshold) is configured in the SmartVan.io
-// add-on UI. The card editor only holds display preferences.
+// Schema for ha-form. ha-form is HA's standard form renderer — by
+// describing the fields as selectors instead of hand-rolling
+// <ha-select> + <mwc-list-item>, we get the events, validation, and
+// styling that the rest of HA uses (and avoid the broken
+// <ha-select>@selected event in HA 2026.4+ where clicks don't fire).
+//
+// Device selector filters by the smartvanio integration. We don't
+// filter by model string here because the model copy can drift
+// ("SmartVan.io Tank Sensor" today, etc.) — the per-device entity
+// suffix lookup in index.ts is what actually proves the device is a
+// resistive sensor at render time.
+const SCHEMA = [
+  {
+    name: "device",
+    required: true,
+    selector: {
+      device: {
+        filter: { integration: "smartvanio", model: "SmartVan.io Tank Sensor" },
+      },
+    },
+  },
+  {
+    name: "variant",
+    required: true,
+    selector: {
+      select: {
+        mode: "dropdown" as const,
+        options: VARIANT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+      },
+    },
+  },
+  {
+    name: "min",
+    selector: { number: { mode: "box" as const, step: 1 } },
+  },
+  {
+    name: "max",
+    selector: { number: { mode: "box" as const, step: 1 } },
+  },
+];
+
+const LABELS: Record<string, string> = {
+  device: "Resistive sensor module",
+  variant: "Style",
+  min: "Min (gauge / bar)",
+  max: "Max (gauge / bar)",
+};
+
 @customElement("smartvan-io-resistive-sensor-editor")
 class SmartVanIOResistiveSensorCardEditor
   extends LitElement
@@ -19,132 +62,37 @@ class SmartVanIOResistiveSensorCardEditor
 {
   @property({ attribute: false }) public hass!: ExtendedHomeAssistant;
 
-  @state() private _possibleDevices: Device[] = [];
   @state() private _config: Config = {
     type: "custom:smartvan-io-resistive-sensor",
     device: "",
     variant: "tile",
   };
 
-  static styles = css`
-    .card-config {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .full-width {
-      width: 100%;
-    }
-    .row {
-      display: flex;
-      gap: 12px;
-    }
-    .row > * {
-      flex: 1;
-    }
-    .hint {
-      color: var(--secondary-text-color);
-      font-size: 0.85rem;
-    }
-  `;
-
   public setConfig(config: Config): void {
-    // Match the integration's DeviceInfo: manufacturer="SmartVan.io" and a
-    // device identifier starting with "smartvanio-res-". The display model
-    // string can vary ("SmartVan.io Tank Sensor", etc.), so we don't rely on
-    // it for filtering — the identifier prefix is what's stable.
-    this._possibleDevices = Object.values(this.hass?.devices || {})
-      .filter((item: any) => item.manufacturer === "SmartVan.io")
-      .filter((item: any) =>
-        (item.identifiers || []).some(
-          (id: [string, string]) =>
-            id[0] === "smartvanio" && id[1]?.startsWith("smartvanio-res-")
-        )
-      );
-
-    if (!config.device && this._possibleDevices.length === 1) {
-      fireEvent(this, "config-changed", {
-        config: { ...config, device: this._possibleDevices[0].id },
-      });
-    }
-
-    this._config = { variant: "tile", ...config };
+    this._config = { variant: "tile", min: 0, max: 100, ...config };
   }
 
   render() {
     if (!this.hass || !this._config) return nothing;
 
     return html`
-      <div class="card-config">
-        <ha-select
-          class="full-width"
-          label="Resistive sensor module"
-          @closed=${(e: Event) => e.stopPropagation()}
-          @selected=${(e: any) => this._setDevice(e.target.value)}
-          .value=${this._config.device}
-        >
-          ${this._possibleDevices.map(
-            (option) => html`
-              <mwc-list-item .value=${option.id}>${option.name}</mwc-list-item>
-            `
-          )}
-        </ha-select>
-
-        <ha-select
-          class="full-width"
-          label="Style"
-          @closed=${(e: Event) => e.stopPropagation()}
-          @selected=${(e: any) => this._setVariant(e.target.value)}
-          .value=${this._config.variant ?? "tile"}
-        >
-          ${VARIANT_OPTIONS.map(
-            (option) => html`
-              <mwc-list-item .value=${option.value}>${option.label}</mwc-list-item>
-            `
-          )}
-        </ha-select>
-
-        <div class="row">
-          <ha-textfield
-            label="Min (gauge / bar)"
-            type="number"
-            .value=${String(this._config.min ?? 0)}
-            @change=${(e: any) => this._setNumber("min", e.target.value)}
-          ></ha-textfield>
-          <ha-textfield
-            label="Max (gauge / bar)"
-            type="number"
-            .value=${String(this._config.max ?? 100)}
-            @change=${(e: any) => this._setNumber("max", e.target.value)}
-          ></ha-textfield>
-        </div>
-
-        <div class="hint">
-          Calibration (interpolation points, resistance limits, method) lives
-          in the SmartVan.io add-on — open it from the Home&nbsp;Assistant sidebar.
-        </div>
-      </div>
+      <ha-form
+        .hass=${this.hass}
+        .data=${this._config}
+        .schema=${SCHEMA}
+        .computeLabel=${this._computeLabel}
+        @value-changed=${this._valueChanged}
+      ></ha-form>
     `;
   }
 
-  private _setDevice(device: string) {
-    fireEvent(this, "config-changed", {
-      config: { ...this._config, device },
-    });
-  }
+  private _computeLabel = (schema: { name: string }) =>
+    LABELS[schema.name] ?? schema.name;
 
-  private _setVariant(variant: ResistiveVariant) {
-    fireEvent(this, "config-changed", {
-      config: { ...this._config, variant },
-    });
-  }
-
-  private _setNumber(key: "min" | "max", raw: string) {
-    const value = raw === "" ? undefined : Number(raw);
-    fireEvent(this, "config-changed", {
-      config: { ...this._config, [key]: value },
-    });
-  }
+  private _valueChanged = (ev: CustomEvent) => {
+    console.log("[smartvan-io-resistive-editor] _valueChanged", ev.detail);
+    fireEvent(this, "config-changed", { config: ev.detail.value });
+  };
 }
 
 declare global {
